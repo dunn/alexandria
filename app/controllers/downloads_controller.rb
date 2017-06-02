@@ -21,8 +21,16 @@ class DownloadsController < ApplicationController
     end
 
     def authorize_download!
-      return authorize!(:download_original, asset) if original_file?
-      super
+      # TODO: this may need to change when non-cylinder audio
+      # recordings are added
+      if asset.is_a? AudioRecording
+        authorize!(:download_original, asset)
+      else
+        authorize! :read, asset
+      end
+    rescue CanCan::AccessDenied
+      flash[:alert] = "You are not authorized to access the record with ID #{asset.id}.  Contact IT support if this is in error."
+      redirect_to root_url
     end
 
     def file_name
@@ -33,9 +41,5 @@ class DownloadsController < ApplicationController
 
     def filename_for_derivative
       File.basename(asset.restored.original_name, ".*") + ".#{params[:file]}"
-    end
-
-    def original_file?
-      params[:file].nil?
     end
 end

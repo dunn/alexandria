@@ -70,7 +70,9 @@ describe DownloadsController do
       context "downloads a restricted object" do
         it "denies access" do
           expect(response).to redirect_to root_url
-          expect(flash[:alert]).to match(/You are not authorized/)
+          expect(flash[:alert]).to(
+            match "You are not authorized to access the record with ID #{file_set.id}."
+          )
         end
       end
     end

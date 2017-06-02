@@ -15,11 +15,6 @@ class Ability
 
   # Define any customized permissions here.
   def custom_permissions
-    # Don't allow downloading originals of Audio files.
-    can :download_original, FileSet do |fs|
-      # TODO: Load parent class from Solr, it'll be faster
-      !fs.parent.is_a?(AudioRecording) && can?(:read, fs)
-    end
     metadata_admin_permissions
     rights_admin_permissions
     discover_permissions
@@ -41,6 +36,7 @@ class Ability
     can [:new_merge, :merge], [ActiveFedora::Base, SolrDocument]
 
     # Allow admins to download originals of AudioRecordings
+    # TODO: add SRC_STAFF when implemented
     can :download_original, FileSet
   end
 
