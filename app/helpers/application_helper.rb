@@ -60,14 +60,16 @@ module ApplicationHelper
   end
 
   # @param [FileSet] file
+  # @param [Boolean] mp3
   # @return [ActiveSupport::SafeBuffer]
-  def link_to_file(file)
-    if file.audio?
-      link_to(file.fetch("title_tesim").first,
-              main_app.curation_concerns_file_set_path(file))
+  def link_to_file(file, mp3: false)
+    if mp3
+      link_to(file["title_tesim"].first,
+              download_path(file.id, file: "mp3", dl: true),
+              target: "_blank")
     else
-      link_to(file.fetch("original_filename_ss"),
-              download_url(file.id, only_path: true),
+      link_to(file["original_filename_ss"],
+              download_path(file.id),
               target: "_blank")
     end
   end
