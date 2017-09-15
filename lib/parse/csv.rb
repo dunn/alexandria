@@ -13,52 +13,57 @@ module Parse::CSV
     csv_type_field.titleize.gsub(/\s+/, "")
   end
 
+  # The CSV metadata may contain multiple fields with the same header,
+  # e.g. multiple :files columns.  Ruby's builtin {CSV} library
+  # doesn't handle this very well, so we count them out manually.
+  #
+  # @param [Symbol] header
+  # @param [CSV::Row] row
+  # @return [Array]
+  def self.values_for(header, row)
+    index = row.index(header.to_sym)
+    return [] if index.nil?
+
+    Array.new(row.length - index) do |i|
+      row.field(header.to_sym, i + index)
+    end.compact
+  end
+
   # Maps a row of CSV metadata to the CSV headers
   #
   # @param [CSV::Row] row
   # @return [Hash]
   def self.csv_attributes(row)
-    {}.tap do |processed|
-      # we use #with_index and pass the indices to the field instead
-      # of the header because there may be multiple instances of the
-      # same header, e.g., :files
-      row.headers.map.with_index do |header, i|
-        extract_field(header.to_s, row.field(i).to_s, processed)
-      end
-    end
-  end
+    Fields::CSV.all.map do |header|
+      key = if header.respond_to? :keys
+              header.keys.first
+            else
+              header
+            end
 
-  # @param [String] header the column heading
-  # @param [String] val the associated value
-  # @param [Hash] processed
-  def self.extract_field(header, val, processed)
-    return if val.blank?
-    raise "No header corresponds to value '#{val}'" if header.blank?
+      values = if header.is_a?(Array) && header["subfields"].present?
+                 header["subfields"].map do |sub|
+                   Fields::CSV.subfield_strings(sub).map do |s|
+                     values_for(s, row)
+                   end
+                 end
+               else
+                 values_for(key, row)
+               end.flatten
 
-    case header
-    when "type", "id"
-      # type and id are singular
-      processed[header.to_sym] = val
-    when /^(created|issued|date_copyrighted|date_valid)_(.*)$/
-      key = "#{Regexp.last_match(1)}_attributes".to_sym
-      # TODO: this only handles one date of each type
-      processed[key] ||= [{}]
-      update_date(processed[key].first, Regexp.last_match(2), val)
-    when "work_type"
-      extract_multi_value_field(header, val, processed)
-    when TYPE_HEADER_PATTERN
-      update_typed_field(header, val, processed)
-    when /^collection_(.*)$/
-      processed[:collection] ||= {}
-      update_collection(processed[:collection], Regexp.last_match(1), val)
-    else
-      last_entry = Array(processed[header.to_sym]).last
-      if last_entry.is_a?(Hash) && !last_entry[:name]
-        update_typed_field(header, val, processed)
+      next {} if values.blank?
+      next Fields::Transformer.default.call(key, values) if header.is_a? String
+
+      if header[key]["typed"]
+        Fields::Transformer.typed(key, values)
+      elsif header[key]["transformer"]
+        Fields::Transformer.send(header[key]["transformer"], key, values)
+      elsif header[key]["subfields"].present?
+        Fields::Transformer.subfields(key, values)
       else
-        extract_multi_value_field(header, val, processed)
+        Fields::Transformer.default.call(key, values)
       end
-    end
+    end.reduce(&:merge)
   end
 
   # Given an accession_number, get the id of the associated object
@@ -137,46 +142,6 @@ module Parse::CSV
     attrs
   end
 
-  # @param [String] header
-  # @param [String] val
-  # @param [Hash] processed
-  # @param [Symbol] key
-  def self.extract_multi_value_field(header, val, processed, key = nil)
-    key ||= header.to_sym
-    processed[key] ||= []
-    val = val.strip
-    processed[key] << (::Fields::URI.looks_like_uri?(val) ? RDF::URI(val) : val)
-  end
-
-  # Fields that have an associated *_type column
-  #
-  # @param [String] header
-  # @param [String] val
-  # @param [Hash] processed
-  def self.update_typed_field(header, val, processed)
-    if header.match(TYPE_HEADER_PATTERN)
-      stripped_header = header.gsub("_type", "")
-      processed[stripped_header.to_sym] ||= []
-      processed[stripped_header.to_sym] << { type: val }
-    else
-      fields = Array(processed[header.to_sym])
-      fields.last[:name] = val
-    end
-  end
-
-  # @param [Hash] collection
-  # @param [String] field
-  # @param [String] val
-  def self.update_collection(collection, field, val)
-    val = [val] unless %w[admin_policy_id id].include? field
-    collection[field.to_sym] = val
-  end
-
-  def self.update_date(date, field, val)
-    date[field.to_sym] ||= []
-    date[field.to_sym] << val
-  end
-
   # Sometimes spaces or punctuation make their way into CSV field names.
   # When they do, clean it up.
   #
@@ -199,8 +164,7 @@ module Parse::CSV
   # @return [Hash]
   def self.assign_access_policy(attrs)
     raise "No access policy defined" unless attrs[:access_policy]
-    access_policy = attrs.delete(:access_policy).first
-    case access_policy
+    case attrs.delete(:access_policy)
     when "public"
       attrs[:admin_policy_id] = AdminPolicy::PUBLIC_POLICY_ID
     when "ucsb"
