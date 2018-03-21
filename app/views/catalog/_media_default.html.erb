@@ -1,0 +1,7 @@
+<% pdfs_present = document.file_sets.select { |fs| fs["original_filename_ss"].include?('pdf') }.size > 0 ? true : false %>
+
+<% if pdfs_present %>
+  <%= render "media_pdf", document: document %>
+<% else %>
+  <%= render "deep_zoom", document: document %>
+<% end %>
