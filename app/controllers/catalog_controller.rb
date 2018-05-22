@@ -6,6 +6,8 @@ class CatalogController < ApplicationController
   include Hydra::Controller::ControllerBehavior
   include BlacklightOaiProvider::Controller
 
+  BlacklightOaiProvider::SolrDocumentProvider.register_format(OAICalisphere.instance)
+
   # enforce_show_permissions is from hydra-access-controls gem
   before_action :enforce_show_permissions, only: :show
 
